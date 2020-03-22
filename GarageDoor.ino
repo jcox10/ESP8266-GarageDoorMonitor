@@ -1,27 +1,24 @@
-// ESP8266 Garage door monitor and activator
-// Based on the ESP8266WebServer examples for client and server
-// Uses Ticker to do a nonblocking loop every 1 second to check status
-
 #include <Ticker.h>
 #include <ESP8266WiFi.h>
 
-#define DEBUG true // flag to turn on/off debugging
+#define DEBUG false // flag to turn on/off debugging
 #define Serial if(DEBUG)Serial 
-#define CLOSED HIGH	
-#define OPEN LOW
+#define CLOSED LOW	// Open/Closed depends on if the sensor is NO or NC
+#define OPEN HIGH
 
-const int statusPin = 13; //pin for the magnetic contact switch
-const int activatePin = 12; //pin for the relay module
-const int ledPin = 0; //onboard LED for the Adafruit ESP8266 HUZZAH breakout
+const int statusPin = 13;
+const int relayPin = 12;
+const int ledPin = 0;
 
 Ticker ticker;
 WiFiServer server(80);
 WiFiClient client;
-const IPAddress updateserver(192,168,1,100);
-const int updateport = 8084;
+const IPAddress updateserver(192,168,1,100); //IP of domoticz server
+const int updateport = 8084; //Port of domoticz server
+const char* updateurl = "GET /json.htm?type=command&param=udevice&idx=12&nvalue="; //Update URL for domoticz
 
-const char* SSID = "YourWifiSSID";
-const char* PASS = "YourWifiPassword";
+const char* SSID = "<YourWifiSSID>";
+const char* PASS = "<YourWifiPassword>";
 
 int Status = -1;
 bool SendUpdate = false;
@@ -29,8 +26,8 @@ bool SendUpdate = false;
 void setup() {
 	Serial.begin(115200);
 	pinMode(statusPin, INPUT_PULLUP);
-	pinMode(activatePin, OUTPUT);
-	digitalWrite(activatePin, LOW);
+	pinMode(relayPin, OUTPUT);
+	digitalWrite(relayPin, LOW);
 	pinMode(ledPin, OUTPUT);
 	digitalWrite(ledPin, HIGH);
 	delay(50);
@@ -58,13 +55,12 @@ void setup() {
 	Serial.print("IP Address: ");
 	Serial.println(WiFi.localIP());
 	delay(1000);
-
-	//Check the door status every 1 second
-	ticker.attach(1, CheckDoorStatus);
 }
 
 void loop() 
 {
+  CheckDoorStatus();
+  
 	if (SendUpdate)
 	{
 		SendStatusUpdate();
@@ -186,13 +182,12 @@ void ProcessRequest(char* getLine)
 
 void SendStatusUpdate()
 {
-  // Connect to the Domoticz server
 	if (client.connect(updateserver, updateport)) 
 	{
 		digitalWrite(ledPin, LOW);
 		Serial.println("connected to update server");
-		// Send the Domoticz API request:
-		client.print("GET /json.htm?type=command&param=udevice&idx=12&nvalue=");
+		// Make your API request:
+		client.print(updateurl);
 		if (Status == CLOSED)
 		{
 			client.print("0");
@@ -231,8 +226,12 @@ void SendStatusUpdate()
 void ActivateDoor()
 {
 	Serial.println("Turning relay on");
-	digitalWrite(activatePin, HIGH);
-	delay(1000);
-	Serial.println("Turning relay off");
-	digitalWrite(activatePin, LOW);
+	digitalWrite(relayPin, HIGH);
+  ticker.attach_ms(500, ReleaseDoorButton);
+}
+
+void ReleaseDoorButton() {
+  Serial.println("Turning relay off");
+  digitalWrite(relayPin, LOW);
+  ticker.detach();
 }
